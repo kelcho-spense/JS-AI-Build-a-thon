@@ -26,9 +26,9 @@ const chatModel = new AzureChatOpenAI({
   azureOpenAIApiKey: process.env.AZURE_INFERENCE_SDK_KEY,
   azureOpenAIApiInstanceName: process.env.INSTANCE_NAME,
   azureOpenAIApiDeploymentName: process.env.DEPLOYMENT_NAME,
-  azureOpenAIApiVersion: "2024-08-01-preview",
-  temperature: 1,
-  maxTokens: 4096,
+  azureOpenAIApiVersion: "2024-02-15-preview",
+  temperature: 0.7,
+  maxTokens: 1024,
 });
 
 const sessionMemories = {};
@@ -137,7 +137,7 @@ app.post("/chat", async (req, res) => {
 
     res.json({ reply: response.content, sources });
   } catch (err) {
-    console.error("Error:", err.message);
+    console.error("Error calling OpenAI:", err);
     res.status(500).json({
       error: "Model call failed",
       message: err.message,
