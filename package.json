@@ -1,0 +1,19 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@actions/core": "^1.10.0",
+    "@actions/github": "^5.0.0",
+    "@azure-rest/ai-inference": "latest",
+    "@azure/core-auth": "latest",
+    "@azure/core-sse": "latest",
+    "@langchain/azure-openai": "^0.0.5",
+    "@langchain/openai": "^0.5.13",
+    "dotenv": "^16.5.0",
+    "langchain": "^0.3.28",
+    "pdf-parse": "^1.1.1",
+    "simple-git": "^3.0.0"
+  },
+  "scripts": {
+    "code-review": "node code-review.genai.js"
+  }
+}
