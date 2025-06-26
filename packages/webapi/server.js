@@ -1,9 +1,10 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import ModelClient from "@azure-rest/ai-inference";
-import { AzureKeyCredential } from "@azure/core-auth";
-import { isUnexpected } from "@azure-rest/ai-inference";
+import { AzureChatOpenAI } from "@langchain/openai";
+import { BufferMemory } from "langchain/memory";
+import { ChatMessageHistory } from "langchain/stores/message/in_memory";
+import { HumanMessage, SystemMessage, AIMessage } from "@langchain/core/messages";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from 'url';
@@ -21,10 +22,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const client = new ModelClient(
-  process.env.AZURE_INFERENCE_SDK_ENDPOINT,
-  new AzureKeyCredential(process.env.AZURE_INFERENCE_SDK_KEY)
-);
+const chatModel = new AzureChatOpenAI({
+  azureOpenAIApiKey: process.env.AZURE_INFERENCE_SDK_KEY,
+  azureOpenAIApiInstanceName: process.env.INSTANCE_NAME,
+  azureOpenAIApiDeploymentName: process.env.DEPLOYMENT_NAME,
+  azureOpenAIApiVersion: "2024-08-01-preview",
+  temperature: 1,
+  maxTokens: 4096,
+});
+
+const sessionMemories = {};
 
 let pdfText = null; 
 let pdfChunks = []; 
@@ -53,6 +60,18 @@ async function loadPDF() {
   return pdfText;
 }
 
+function getSessionMemory(sessionId) {
+  if (!sessionMemories[sessionId]) {
+    const history = new ChatMessageHistory();
+    sessionMemories[sessionId] = new BufferMemory({
+      chatHistory: history,
+      returnMessages: true,
+      memoryKey: "chat_history",
+    });
+  }
+  return sessionMemories[sessionId];
+}
+
 function retrieveRelevantContent(query) {
   const queryTerms = query.toLowerCase().split(/\s+/) // Converts query to relevant search terms
     .filter(term => term.length > 3)
@@ -78,53 +97,52 @@ function retrieveRelevantContent(query) {
 
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
-  const useRAG = req.body.useRAG === undefined ? true : req.body.useRAG; 
-  let messages = [];
+  const useRAG = req.body.useRAG === undefined ? true : req.body.useRAG;
+  const sessionId = req.body.sessionId || "default";
+
   let sources = [];
+
+  const memory = getSessionMemory(sessionId);
+  const memoryVars = await memory.loadMemoryVariables({});
+
   if (useRAG) {
     await loadPDF();
     sources = retrieveRelevantContent(userMessage);
-    if (sources.length > 0) {
-      messages.push({ 
-        role: "system", 
-        content: `You are a helpful assistant answering questions about the company based on its employee handbook. 
-        Use ONLY the following information from the handbook to answer the user's question.
-        If you can't find relevant information in the provided context, say so clearly.
-        --- EMPLOYEE HANDBOOK EXCERPTS ---
-        ${sources.join('')}
-        --- END OF EXCERPTS ---`
-      });
-    } else {
-      messages.push({
-        role: "system",
-        content: "You are a helpful assistant. No relevant information was found in the employee handbook for this question."
-      });
-    }
-  } else {
-    messages.push({
-      role: "system",
-      content: "You are a helpful assistant."
-    });
   }
-  messages.push({ role: "user", content: userMessage });
+
+  // Prepare system prompt
+  const systemMessage = useRAG
+    ? {
+        role: "system",
+        content: sources.length > 0
+          ? `You are a helpful assistant for Contoso Electronics. You must ONLY use the information provided below to answer.\n\n--- EMPLOYEE HANDBOOK EXCERPTS ---\n${sources.join('\n\n')}\n--- END OF EXCERPTS ---`
+          : `You are a helpful assistant for Contoso Electronics. The excerpts do not contain relevant information for this question. Reply politely: \"I'm sorry, I don't know. The employee handbook does not contain information about that.\"`,
+      }
+    : {
+        role: "system",
+        content: "You are a helpful and knowledgeable assistant. Answer the user's questions concisely and informatively.",
+      };
 
   try {
-    const response = await client.path("/openai/deployments/o4-mini/chat/completions").post({
-      body: {
-        messages,
-        max_completion_tokens: 4096,
-      },
-      headers: {
-        "api-version": "2024-12-01-preview"
-      }
-    });
-    if (isUnexpected(response)) throw new Error(response.body.error || "Model API error");
-    res.json({
-      reply: response.body.choices[0].message.content,
-      sources: useRAG ? sources : []
-    });
+    // Build final messages array using LangChain message objects
+    const messages = [
+      new SystemMessage(systemMessage.content),
+      ...(memoryVars.chat_history || []),
+      new HumanMessage(userMessage),
+    ];
+    
+    const response = await chatModel.invoke(messages);
+    
+    await memory.saveContext({ input: userMessage }, { output: response.content });
+
+    res.json({ reply: response.content, sources });
   } catch (err) {
-    res.status(500).json({ error: "Model call failed", message: err.message });
+    console.error("Error:", err.message);
+    res.status(500).json({
+      error: "Model call failed",
+      message: err.message,
+      reply: "Sorry, I encountered an error. Please try again."
+    });
   }
 });
 
