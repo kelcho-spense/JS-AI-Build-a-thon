@@ -412,4 +412,4 @@ FodyWeavers.xsd
 .env
 .azure
 
-# !agent/
+!agent/

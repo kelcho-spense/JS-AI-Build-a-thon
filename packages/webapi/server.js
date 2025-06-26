@@ -26,7 +26,7 @@ const chatModel = new AzureChatOpenAI({
   azureOpenAIApiKey: process.env.AZURE_INFERENCE_SDK_KEY,
   azureOpenAIApiInstanceName: process.env.INSTANCE_NAME,
   azureOpenAIApiDeploymentName: process.env.DEPLOYMENT_NAME,
-  azureOpenAIApiVersion: "2024-02-15-preview",
+  azureOpenAIApiVersion: "2024-12-01-preview",
   temperature: 0.7,
   maxTokens: 1024,
 });
